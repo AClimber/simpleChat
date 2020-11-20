@@ -1,0 +1,6 @@
+{
+  "watch": ["./"],
+  "ext": "ts",
+  "ignore": [""],
+  "exec": "node --inspect=0.0.0.0:9229 --require ts-node/register --require ./index.ts"
+}
