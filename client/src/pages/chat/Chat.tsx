@@ -1,88 +1,88 @@
-import React, {ReactElement} from 'react';
+import React, {ReactElement, RefObject} from 'react';
 import socketIOClient from 'socket.io-client';
+import {ChatProps, ChatState, NotificationEvents, User} from './Chat.interfaces';
+import {NavLink} from 'react-router-dom';
 
-interface UserRoom {
-    id: string;
-    name: string;
-}
-interface ChatProps {}
-interface ChatState {
-    room: UserRoom[],
-    messages: string[]
-}
 class Chat extends React.Component<ChatProps, ChatState> {
     private socket: SocketIOClient.Socket;
     private readonly userName: string;
-    private readonly textMessageRef: any;
+    private readonly textMessageRef: RefObject<HTMLInputElement>;
 
     constructor(props: ChatProps) {
         super(props);
         // @ts-ignore
         this.userName = this.props.location.state;
         this.state = {
-            room: [],
-            messages: []
+            messages: [],
+            isActive: false
         };
-        this.socket = this.setSocketConnection();
-        this.textMessageRef = React.createRef();
+        this.socket = this.getSocketConnection();
+        this.textMessageRef = React.createRef<HTMLInputElement>();
         this.handleSendMessage = this.handleSendMessage.bind(this);
         this.leaveFormChat = this.leaveFormChat.bind(this);
     }
 
-    setSocketConnection() {
+    getSocketConnection() {
         const url: string = process.env.REACT_APP_BASE_URL || '';
-        let socket: SocketIOClient.Socket = socketIOClient(url);
-        socket.on('new_join', (name: string, id: string) => {
-            this.setState((state) => {
+        return socketIOClient(url);
+    }
+
+    addSocketListeners() {
+        this.socket.on(NotificationEvents.NEW_JOIN, (user: User) => {
+            this.setState(state => {
                 return {
-                    room: [...state.room, {id, name}],
-                    messages: [...state.messages, `${name} was joined in the chat`]
+                    isActive: true,
+                    messages: [...state.messages, `${user.name} was joined in the chat`]
                 };
             });
         });
-        socket.on('new_leave', (id: string) => {
-            this.setState((state) => {
-                const leftUser = state.room.find(user => user.id === id);
-                const newRoom = state.room.filter(user => user.id !== id);
+        this.socket.on(NotificationEvents.NEW_LEAVE, (user: User) => {
+            this.setState(state => {
                 return {
-                    room: newRoom,
-                    messages: [...state.messages, `${leftUser?.name} left the chat`],
+                    messages: [...state.messages, `${user.name} left the chat`],
                 };
             });
         });
-        socket.on('new_message', (message: string, id: string) => {
-            this.setState((state) => {
-                const user = this.state.room.find(user => user.id === id)
+        this.socket.on(NotificationEvents.NEW_MESSAGE, (user: User, message: string) => {
+            this.setState(state => {
                 return {
-                    room: state.room,
-                    messages: [...state.messages, `${user?.name}: ${message}`]
+                    messages: [...state.messages, `${user.name}: ${message}`]
                 };
             });
         });
-        return socket;
     }
 
     componentDidMount(){
-        this.socket.emit('join', this.userName)
+        this.addSocketListeners();
+        this.socket.emit(NotificationEvents.JOIN, this.userName);
     }
 
+    componentWillUnmount(){
+        this.socket.disconnect();
+    }
     handleSendMessage() {
-        const message: string = this.textMessageRef.current.value;
-        this.socket.emit('message', message);
-        this.textMessageRef.current.value = '';
+        const message: string = this.textMessageRef.current?.value || '';
+        this.socket.emit(NotificationEvents.MESSAGE, message);
+        this.textMessageRef.current && (this.textMessageRef.current.value = '');
     }
 
     leaveFormChat() {
-        this.socket.emit('leave');
+        this.socket.emit(NotificationEvents.LEAVE);
+        this.setState(() => {
+            return {
+                isActive: false
+            }
+        })
     }
 
     render() {
-        const {messages} = this.state;
-        const messageItems = messages.map((message) =>
-            <li>{message}</li>
+        const {messages, isActive} = this.state;
+        const messageItems: ReactElement[] = messages.map((message, index) =>
+            <li key={index}>{message}</li>
         );
-        return <div>
-            <span>Chat</span>
+        const leftChatMessageElement: ReactElement = <><span>You left this chat</span><NavLink  to='/login'>Try again</NavLink></>
+        const chatElement = <>
+            <span>Chat {this.userName}</span>
             <br/>
             <ul>{messageItems}</ul>
             <br/>
@@ -94,7 +94,11 @@ class Chat extends React.Component<ChatProps, ChatState> {
             <button onClick={this.leaveFormChat}>
                 Leave form chat
             </button>
-        </div>;
+        </>;
+        const content: ReactElement = isActive ? chatElement: leftChatMessageElement;
+        return <div>
+            {content}
+        </div>
     }
 }
 
